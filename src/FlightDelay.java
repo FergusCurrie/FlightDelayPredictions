@@ -4,6 +4,8 @@ package FlightDelay;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.DataFrameNaFunctions;
 
+
+import org.apache.spark.ml.feature.OneHotEncoderEstimator;
 // Recommended by lecturer 
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -28,6 +30,9 @@ import java.util.Arrays;
 import java.util.stream.Collectors;
 import java.util.ArrayList;
 import java.util.List;
+
+import org.apache.spark.ml.feature.VectorIndexer;
+import org.apache.spark.ml.feature.VectorIndexerModel;
 
 // x 
 
@@ -57,11 +62,9 @@ public class FlightDelay{
 
         Dataset<Row> data = spark.read().format("csv").option("sep", ",").option("nullfable","false").option("inferSchema", "true").option("header", "true").load("/user/currieferg/FlightDelayData/Jan_2020_ontime.csv");
 
-
-        // ArrayList<String> drop_airport_info = new ArrayList<>(Arrays.asList("OP_CARRIER", "TAIL_NUM", "ORIGIN", "DEST", "DEP_TIME_BLK", "_c21", "OP_UNIQUE_CARRIER", "ARR_TIME"));
         ArrayList<String> drop_airport_info = new ArrayList<>(Arrays.asList("ORIGIN_AIRPORT_ID", "ORIGIN_AIRPORT_SEQ_ID", "ORIGIN", "DEST_AIRPORT_ID", "DEST_AIRPORT_SEQ_ID", "DEST")); 
         ArrayList<String> drop_plane_info = new ArrayList<>(Arrays.asList("OP_UNIQUE_CARRIER", "OP_CARRIER_AIRLINE_ID", "OP_CARRIER", "TAIL_NUM", "OP_CARRIER_FL_NUM"));
-        ArrayList<String> drop_other = new ArrayList<>(Arrays.asList("DEP_TIME", "ARR_TIME", "_c21", "DEP_TIME_BLK"));
+        ArrayList<String> drop_other = new ArrayList<>(Arrays.asList("DEP_TIME", "ARR_TIME", "_c21")); // , "DEP_TIME_BLK"
         for(String d : drop_airport_info){
             data = data.drop(d);
         }
@@ -72,36 +75,44 @@ public class FlightDelay{
             data = data.drop(d);
         }
 
-
-        //DataFrameNaFunctions dropper = new DataFrameNaFunctions();
+        // Drop nulls
         data = data.na().drop();
 
+        
+        // Convert DEP_TIME_BLK into one hot encoding
+        StringIndexer dtb_indexer = new StringIndexer().setInputCol("DEP_TIME_BLK").setOutputCol("DEP_TIME_BLK_INDEX");
+        data = dtb_indexer.fit(data).transform(data);
+        data = data.drop("DEP_TIME_BLK");
+
+        String[] in = new String[1];
+        String[] out = new String[1];
+        in[0] = "DEP_TIME_BLK_INDEX";
+        out[0] = "DEP_TIME_BLK_VEC";
+        OneHotEncoderEstimator dtb_encoder = new OneHotEncoderEstimator().setInputCols(in).setOutputCols(out);
+        data = dtb_encoder.fit(data).transform(data);
+        data = data.drop("DEP_TIME_BLK_INDEX");
+        data.printSchema();
+        
         // compile all features to single column
         VectorAssembler assembler = new VectorAssembler()
-            .setInputCols(Arrays.stream(data.columns()).filter(x -> x!=label_str).toArray(String[]::new)) //x -> x!="label"
+            .setInputCols(Arrays.stream(data.columns()).filter(x -> x!=label_str).toArray(String[]::new)) 
             .setOutputCol("features");
-        //data = assembler.transform(data);
-        
 
-
-        data.printSchema();
-
-        // Splitting data ... add stratified? 
-        
+        // Split into test and training
         Dataset<Row>[] split = data.randomSplit(new double[]{0.7,0.3},123); // 123 = seed 
         Dataset<Row> training = split[0];
         Dataset<Row> test = split[1];
 
 
         // Model
-
-        LogisticRegression lr = new LogisticRegression().setMaxIter(10) //Set maximum iterations
+        LogisticRegression lr = new LogisticRegression().setMaxIter(20) //Set maximum iterations
                                                         .setRegParam(0.3) //Set Lambda
                                                         .setElasticNetParam(0.8) //Set Alpha
                                                         .setLabelCol(label_str);    
         
-        
-        Pipeline pipeline = new Pipeline().setStages(new PipelineStage[] {assembler, lr});
+        // Pipeline
+        Pipeline pipeline = new Pipeline().setStages(new PipelineStage[] {assembler, lr}); //dtb_indexer, dtb_encoder, 
+
 
         PipelineModel model = pipeline.fit(training);       
 
@@ -131,14 +142,6 @@ public class FlightDelay{
         
         // summary statistics
         all_results.describe("test").write().csv("/user/currieferg/FlightDelayResult/summary");
-
-
-
-
-
-
-
-        
 
     }
 }
