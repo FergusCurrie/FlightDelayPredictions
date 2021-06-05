@@ -64,7 +64,7 @@ public class OnlineNewsPopularity{
     public static Row run(int seed, Dataset<Row> data, Pipeline pipeline, String label_str){
         long startTime = System.currentTimeMillis();
         // Split into test and training
-        Dataset<Row>[] split = data.randomSplit(new double[]{0.7,0.3},1232424); // 123 = seed 
+        Dataset<Row>[] split = data.randomSplit(new double[]{0.7,0.3}, seed); // 123 = seed 
         Dataset<Row> training = split[0];
         Dataset<Row> test = split[1];
 
@@ -109,7 +109,7 @@ public class OnlineNewsPopularity{
         // Initilisations 
         String f_path = "/user/currieferg/OnlineNewsPopInp/OnlineNewsPopularity.csv";
         Logger.getLogger("org").setLevel(Level.OFF);
-        boolean do_norm = false; 
+        boolean do_norm = true; 
         boolean do_pca = false;
         String label_str = " shares";
         String app_name = "NewsPopularity";
@@ -117,11 +117,9 @@ public class OnlineNewsPopularity{
 
         // Load and clean data. Then print the schema 
         Dataset<Row> data = spark.read().format("csv").option("sep", ",").option("nullfable","false").option("inferSchema", "true").option("header", "true").load(f_path);
-        data = data.drop("url");
-        data.printSchema();     
+        data = data.drop("url"); 
         
         // compile all features to single column
-        System.out.println(data.columns());
         VectorAssembler assembler = new VectorAssembler()
             .setInputCols(Arrays.stream(data.columns()).filter(x -> !x.equals(label_str)).toArray(String[]::new))
             .setOutputCol("features");
@@ -138,7 +136,7 @@ public class OnlineNewsPopularity{
 
         // Model
         //LogisticRegression lr = new LogisticRegression().setMaxIter(20).setRegParam(0.3).setLabelCol(label_str);
-        LinearRegression lr = new LinearRegression().setMaxIter(20).setRegParam(0.3).setLabelCol(label_str).setFeaturesCol("features").setRegParam(3);//.setElasticNetParam(0.8);                          
+        LinearRegression lr = new LinearRegression().setMaxIter(20).setRegParam(0.3).setLabelCol(label_str).setFeaturesCol("features").setElasticNetParam(1).setFitIntercept(true);//.setElasticNetParam(0.8);                          
         
         // Pipeline
         Pipeline pipeline = null;
@@ -155,7 +153,9 @@ public class OnlineNewsPopularity{
 
         
         List<Row> results = new ArrayList<Row>();
-        results.add(run(1231, data, pipeline, label_str));
+        for(int i = 0; i < 2; i++){
+            results.add(run(i*100, data, pipeline, label_str));
+        }
 
 
 
@@ -169,6 +169,8 @@ public class OnlineNewsPopularity{
 
         all_results.write().csv("/user/currieferg/OnlineNewsPopRes/results");
         all_results.describe("TEST_RMSE").write().csv("/user/currieferg/OnlineNewsPopRes/summary");
+
+        System.out.println(all_results);
 
     }
 }
