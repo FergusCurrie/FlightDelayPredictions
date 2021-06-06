@@ -59,6 +59,8 @@ import java.util.function.Function;
 import org.apache.spark.sql.SQLContext;
 
 
+
+
 public class OnlineNewsPopularity{
     
 
@@ -101,40 +103,36 @@ public class OnlineNewsPopularity{
         // Initilisations 
         String f_path = "/user/currieferg/OnlineNewsPopInp/ln_OnlineNewsPopularity.csv";
         Logger.getLogger("org").setLevel(Level.OFF);
-        boolean do_scale = true; 
-        boolean do_pca = true;
+        boolean do_scale = false; 
+        boolean do_pca = false;
         String label_str = " nl_shares";
         String app_name = "NewsPopularity";
 	    SparkSession spark = SparkSession.builder().appName(app_name).getOrCreate(); //.master("local") .master("local")
 
         // Load and clean data.  
         Dataset<Row> data = spark.read().format("csv").option("sep", ",").option("nullfable","false").option("inferSchema", "true").option("header", "true").load(f_path);
-        List<String> to_drop = Arrays.asList("url", " shares", " timedelta"," kw_min_min"," kw_avg_min"," kw_min_avg");
+        List<String> to_drop = Arrays.asList("url", " timedelta"," kw_min_min"," kw_avg_min"," kw_min_avg"); //" shares"
         //List<String> to_drop = Arrays.asList("url");
         for(int i = 0; i < to_drop.size(); i++){
             data = data.drop(to_drop.get(i)); 
         }
-        data.printSchema();
+        //data.printSchema();
+        
+        //Trying to convert myself
         /*
-        Trying to convert myself
-        data.printSchema();
-
         Dataset<Row> shares = data.select(" shares");
         JavaRDD<Double> shares_d = shares.toJavaRDD().map(row -> row.getDouble(0));
         JavaRDD<Double> log_shares = shares_d.map(s -> Math.log(s));
-
+        JavaRDD<Row> row_log_shares = shares_d.map(s -> RowFactory.create(Math.log(s)));  
         StructType log_shares_struct = new StructType(new StructField[]{
             new StructField("log_shares", DataTypes.DoubleType, false, Metadata.empty())
         });
+        Dataset<Row> log_share_df = spark.createDataFrame(row_log_shares, log_shares_struct);
         
-        Dataset<Row> log_shares_ds = spark.createDataFrame(log_shares, JavaRDD<Double>);//log_shares_struct.getClass()); //
-        log_shares_ds.printSchema();
-        data = data.join(log_shares_ds);
-         data.printSchema();
-        System.out.println("1");
+
+        data = data.join(log_share_df, col(" shares").equalTo(col("log_shares")));
         */
-
-
+        data.printSchema();
 
         // Pipeline Stages 
         VectorAssembler assembler = new VectorAssembler().setInputCols(Arrays.stream(data.columns()).filter(x -> !x.equals(label_str)).toArray(String[]::new)).setOutputCol("features");
@@ -182,5 +180,6 @@ public class OnlineNewsPopularity{
         Dataset<Row> all_results = spark.createDataFrame(results, schema_out);
         all_results.write().csv("/user/currieferg/OnlineNewsPopRes/results");
         all_results.describe("TEST_RMSE").write().csv("/user/currieferg/OnlineNewsPopRes/summary");
+    
     }
 }
